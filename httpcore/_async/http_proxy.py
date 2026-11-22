@@ -88,9 +88,12 @@ class AsyncHTTPProxy(AsyncConnectionPool):  # pragma: nocover
                 If not specified, the default `httpcore.default_ssl_context()`
                 will be used.
             proxy_ssl_context: The same as `ssl_context`, but for a proxy server rather than a remote origin.
-            max_connections: The maximum number of concurrent HTTP connections that
-                the pool should allow. Any attempt to send a request on a pool that
-                would exceed this amount will block until a connection is available.
+            max_connections: The maximum number of concurrent requests that
+                the pool should allow. Any attempt to send a request on a pool
+                that would exceed this amount will block until a request
+                has completed. Note that a single HTTP/2 connection may
+                service multiple concurrent requests, so the number of
+                connections in the pool may be lower than this limit.
             max_keepalive_connections: The maximum number of idle HTTP connections
                 that will be maintained in the pool.
             keepalive_expiry: The duration in seconds that an idle HTTP connection

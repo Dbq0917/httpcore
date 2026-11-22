@@ -656,6 +656,61 @@ def test_connection_pool_concurrency_same_domain_keepalive():
 
 
 
+def test_connection_pool_http2_concurrent_streams():
+    """
+    HTTP/2 requests made in concurrency must not ever exceed the maximum number
+    of concurrent requests allowed by the pool, even though a single connection
+    is able to service them all.
+    """
+    buffer = [
+        hyperframe.frame.SettingsFrame(
+            settings={hyperframe.frame.SettingsFrame.MAX_CONCURRENT_STREAMS: 100}
+        ).serialize()
+    ]
+    for stream_id in range(1, 200, 2):
+        buffer += [
+            hyperframe.frame.HeadersFrame(
+                stream_id=stream_id,
+                data=hpack.Encoder().encode(
+                    [
+                        (b":status", b"200"),
+                        (b"content-type", b"plain/text"),
+                    ]
+                ),
+                flags=["END_HEADERS"],
+            ).serialize(),
+            hyperframe.frame.DataFrame(
+                stream_id=stream_id, data=b"Hello, world!", flags=["END_STREAM"]
+            ).serialize(),
+        ]
+    network_backend = httpcore.MockBackend(buffer, http2=True)
+
+    stats = {"active": 0, "max_active": 0}
+
+    def fetch(pool, stats):
+        with pool.stream("GET", "https://example.com/") as response:
+            stats["active"] += 1
+            stats["max_active"] = max(stats["max_active"], stats["active"])
+            assert response.read() == b"Hello, world!"
+        stats["active"] -= 1
+
+    with httpcore.ConnectionPool(
+        max_connections=10, network_backend=network_backend, http2=True
+    ) as pool:
+        with concurrency.open_nursery() as nursery:
+            for _ in range(100):
+                nursery.start_soon(fetch, pool, stats)
+
+        # The pool never exceeded the maximum number of concurrent requests,
+        # even though all one hundred requests were sent on a single connection.
+        assert stats["max_active"] <= 10
+        info = [repr(c) for c in pool.connections]
+        assert info == [
+            "<HTTPConnection ['https://example.com:443', HTTP/2, IDLE, Request Count: 100]>"
+        ]
+
+
+
 def test_unsupported_protocol():
     with httpcore.ConnectionPool() as pool:
         with pytest.raises(httpcore.UnsupportedProtocol):

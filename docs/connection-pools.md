@@ -57,9 +57,12 @@ The connection pool instance is also the main point of configuration. Let's take
 
 ### Pooling configuration
 
-* `max_connections`: The maximum number of concurrent HTTP connections that the pool
+* `max_connections`: The maximum number of concurrent requests that the pool
                      should allow. Any attempt to send a request on a pool that would
-                     exceed this amount will block until a connection is available.
+                     exceed this amount will block until a request has completed.
+                     Note that a single HTTP/2 connection may service multiple
+                     concurrent requests, so the number of connections in the pool
+                     may be lower than this limit.
 * `max_keepalive_connections`: The maximum number of idle HTTP connections that will
                                be maintained in the pool.
 * `keepalive_expiry`: The duration in seconds that an idle HTTP connection may be

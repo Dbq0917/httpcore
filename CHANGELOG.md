@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+- Limit the number of concurrent requests in the connection pool, rather than the
+  number of connections, so that `max_connections` also bounds the number of
+  concurrent HTTP/2 streams.
 - Fix `max_keepalive_connections` not being properly handled. (#1000)
 
 ## Version 1.0.9 (April 24th, 2025)
