@@ -669,7 +669,7 @@ async def test_unsupported_protocol():
 async def test_connection_pool_closed_while_request_in_flight():
     """
     Closing a connection pool while a request/response is still in-flight
-    should raise an error.
+    should allow the in-flight response to be read to completion.
     """
     network_backend = httpcore.AsyncMockBackend(
         [
@@ -688,8 +688,14 @@ async def test_connection_pool_closed_while_request_in_flight():
         # response has not yet been streamed.
         async with pool.stream("GET", "https://example.com/") as response:
             await pool.aclose()
-            with pytest.raises(httpcore.ReadError):
-                await response.aread()
+            # The in-flight response is still read to completion.
+            assert await response.aread() == b"Hello, world!"
+
+        # Once the response has completed the connection is closed,
+        # and no further requests may be sent on the pool.
+        assert pool.connections == []
+        with pytest.raises(httpcore.ConnectionNotAvailable):
+            await pool.request("GET", "https://example.com/")
 
 
 @pytest.mark.anyio

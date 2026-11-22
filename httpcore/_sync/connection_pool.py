@@ -119,6 +119,7 @@ class ConnectionPool(RequestInterface):
         # and the set of connections that are servicing those requests.
         self._connections: list[ConnectionInterface] = []
         self._requests: list[PoolRequest] = []
+        self._closed = False
 
         # We only mutate the state of the connection pool within an 'optional_thread_lock'
         # context. This holds a threading lock unless we're running in async mode,
@@ -216,6 +217,8 @@ class ConnectionPool(RequestInterface):
         timeout = timeouts.get("pool", None)
 
         with self._optional_thread_lock:
+            if self._closed:
+                raise ConnectionNotAvailable("Connection pool is closed")
             # Add the incoming request to our request queue.
             pool_request = PoolRequest(request)
             self._requests.append(pool_request)
@@ -289,6 +292,10 @@ class ConnectionPool(RequestInterface):
                 # log: "closing expired connection"
                 self._connections.remove(connection)
                 closing_connections.append(connection)
+            elif self._closed and connection.is_idle():
+                # log: "closing idle connection"
+                self._connections.remove(connection)
+                closing_connections.append(connection)
             elif (
                 connection.is_idle()
                 and sum(connection.is_idle() for connection in self._connections)
@@ -299,7 +306,14 @@ class ConnectionPool(RequestInterface):
                 closing_connections.append(connection)
 
         # Assign queued requests to connections.
-        queued_requests = [request for request in self._requests if request.is_queued()]
+        # Once the pool is closed no further requests are assigned,
+        # and any remaining connections are closed once in-flight
+        # requests have completed.
+        queued_requests = (
+            []
+            if self._closed
+            else [request for request in self._requests if request.is_queued()]
+        )
         for pool_request in queued_requests:
             origin = pool_request.request.url.origin
             available_connections = [
@@ -346,10 +360,12 @@ class ConnectionPool(RequestInterface):
 
     def close(self) -> None:
         # Explicitly close the connection pool.
-        # Clears all existing requests and connections.
+        # Idle connections are closed immediately. Connections with
+        # in-flight requests are closed once their responses complete,
+        # so that closing the pool does not interrupt in-flight requests.
         with self._optional_thread_lock:
-            closing_connections = list(self._connections)
-            self._connections = []
+            self._closed = True
+            closing_connections = self._assign_requests_to_connections()
         self._close_connections(closing_connections)
 
     def __enter__(self) -> ConnectionPool:

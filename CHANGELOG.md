@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## Unreleased
 
 - Fix `max_keepalive_connections` not being properly handled. (#1000)
+- Closing a connection pool no longer interrupts in-flight requests. Idle connections are closed immediately, while connections with in-flight responses are closed once the response has been read to completion.
 
 ## Version 1.0.9 (April 24th, 2025)
 
