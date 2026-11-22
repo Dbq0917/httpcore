@@ -7,6 +7,7 @@ import pytest
 
 from httpcore import (
     SOCKET_OPTION,
+    URL,
     HTTPConnection,
     MockBackend,
     MockStream,
@@ -15,6 +16,7 @@ from httpcore import (
     ConnectionNotAvailable,
     Origin,
     RemoteProtocolError,
+    Request,
     WriteError,
 )
 
@@ -219,6 +221,44 @@ def test_http2_connection():
         assert response.status == 200
         assert response.content == b"Hello, world!"
         assert response.extensions["http_version"] == b"HTTP/2"
+
+
+class RecordingSSLContext:
+    def __init__(self) -> None:
+        self.alpn_protocols: typing.Optional[typing.List[str]] = None
+
+    def set_alpn_protocols(self, protocols: typing.List[str]) -> None:
+        self.alpn_protocols = protocols
+
+
+
+@pytest.mark.parametrize(
+    "http1, http2, expected",
+    [
+        (True, True, ["h2", "http/1.1"]),
+        (True, False, ["http/1.1"]),
+        (False, True, ["h2"]),
+    ],
+)
+def test_alpn_protocol_preference(
+    http1: bool, http2: bool, expected: typing.List[str]
+) -> None:
+    origin = Origin(b"https", b"example.com", 443)
+    ssl_context = RecordingSSLContext()
+    network_backend = MockBackend([])
+
+    with HTTPConnection(
+        origin=origin,
+        network_backend=network_backend,
+        ssl_context=typing.cast(ssl.SSLContext, ssl_context),
+        http1=http1,
+        http2=http2,
+    ) as conn:
+        request = Request(b"GET", URL(scheme=b"https", host=b"example.com"))
+        stream = conn._connect(request)
+        stream.close()
+
+    assert ssl_context.alpn_protocols == expected
 
 
 
